@@ -33,6 +33,7 @@ if (isset($options['h'])) {
         $where = ' ';
         $doing = 'all';
     } elseif ($options['h'] == 'new') {
+        $new_discovery_lock = \LibreNMS\FileLock::lockOrDie('new-discovery');
         $where = 'AND `last_discovered` IS NULL';
         $doing = 'new';
     } elseif ($options['h']) {
@@ -113,7 +114,11 @@ if (!$where) {
     exit;
 }
 
-require 'includes/sql-schema/update.php';
+if (get_lock('schema') === false) {
+    require 'includes/sql-schema/update.php';
+}
+
+update_os_cache(); // will only update if needed
 
 $discovered_devices = 0;
 
@@ -136,6 +141,10 @@ if ($discovered_devices) {
         // We have added a new device by this point so we might want to do some other work
         oxidized_reload_nodes();
     }
+}
+
+if ($doing === 'new') {
+    $new_discovery_lock->release();
 }
 
 $string = $argv[0]." $doing ".date($config['dateformat']['compact'])." - $discovered_devices devices discovered in $proctime secs";
