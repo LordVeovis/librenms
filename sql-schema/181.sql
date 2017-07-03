@@ -9,6 +9,7 @@ WHERE table_schema=DATABASE()
 	AND table_name='applications'
 	AND index_name='unique_index';
 
-IF index_exists = 0 THEN
-	ALTER TABLE `applications` ADD UNIQUE `unique_index`(`device_id`, `app_type`);
+IF index_exists != 0 THEN
+	DROP INDEX `unique_index` ON `applications`
 END IF
+ALTER TABLE `applications` ADD UNIQUE `unique_index`(`device_id`, `app_type`);
