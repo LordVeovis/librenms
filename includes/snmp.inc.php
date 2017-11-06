@@ -200,10 +200,18 @@ function snmp_get_multi($device, $oids, $options = '-OQUs', $mib = null, $mibdir
     foreach (explode("\n", $data) as $entry) {
         list($oid,$value)  = explode('=', $entry, 2);
         $oid               = trim($oid);
-        $value             = trim($value);
+        $value             = trim($value, "\" \n\r");
         list($oid, $index) = explode('.', $oid, 2);
-        if (!strstr($value, 'at this OID') && isset($oid) && isset($index)) {
-            $array[$index][$oid] = $value;
+
+        if (!str_contains($value, 'at this OID')) {
+            if (is_null($index)) {
+                if (empty($oid)) {
+                    continue; // no index or oid
+                }
+                $array[$oid] = $value;
+            } else {
+                $array[$index][$oid] = $value;
+            }
         }
     }
 
@@ -223,12 +231,22 @@ function snmp_get_multi_oid($device, $oids, $options = '-OUQn', $mib = null, $mi
     $data = trim(external_exec($cmd));
 
     $array = array();
+    $oid = '';
     foreach (explode("\n", $data) as $entry) {
-        list($oid,$value)  = explode('=', $entry, 2);
-        $oid               = trim($oid);
-        $value             = trim($value);
-        if (!strstr($value, 'at this OID') && isset($oid)) {
-            $array[$oid] = $value;
+        if (str_contains($entry, '=')) {
+            list($oid,$value)  = explode('=', $entry, 2);
+            $oid               = trim($oid);
+            $value             = trim($value, "\" \n\r");
+            if (!strstr($value, 'at this OID') && isset($oid)) {
+                $array[$oid] = $value;
+            }
+        } else {
+            if (isset($array[$oid])) {
+                // if appending, add a line return
+                $array[$oid] .= PHP_EOL . $entry;
+            } else {
+                $array[$oid] = $entry;
+            }
         }
     }
 
@@ -245,10 +263,10 @@ function snmp_get($device, $oid, $options = null, $mib = null, $mibdir = null)
     }
 
     $cmd = gen_snmpget_cmd($device, $oid, $options, $mib, $mibdir);
-    $data = trim(external_exec($cmd));
+    $data = trim(external_exec($cmd), "\" \n\r");
 
     recordSnmpStatistic('snmpget', $time_start);
-    if (is_string($data) && (preg_match('/(No Such Instance|No Such Object|No more variables left|Authentication failure)/i', $data))) {
+    if (preg_match('/(No Such Instance|No Such Object|No more variables left|Authentication failure)/i', $data)) {
         return false;
     } elseif ($data || $data === '0') {
         return $data;
@@ -552,6 +570,11 @@ function snmpwalk_group($device, $oid, $mib = '', $depth = 1, $array = array())
         $parts = $parts[1];
         array_splice($parts, $depth, 0, array_shift($parts)); // move the oid name to the correct depth
 
+        // some tables don't use entries so they end with .0
+        if (end($parts) == '.0') {
+            array_pop($parts);
+        }
+
         $line = strtok("\n"); // get the next line and concatenate multi-line values
         while ($line !== false && !str_contains($line, '=')) {
             $value .= $line . PHP_EOL;
@@ -561,7 +584,7 @@ function snmpwalk_group($device, $oid, $mib = '', $depth = 1, $array = array())
         // merge the parts into an array, creating keys if they don't exist
         $tmp = &$array;
         foreach ($parts as $part) {
-            $tmp = &$tmp[trim($part, '"')];
+            $tmp = &$tmp[trim($part, '".')];
         }
         $tmp = trim($value, "\" \n\r"); // assign the value as the leaf
     }
